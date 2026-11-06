@@ -1,0 +1,1 @@
+import {NextResponse} from 'next/server';import {getDb} from '@/lib/mongodb';export async function GET(){try{await getDb().then(db=>db.command({ping:1}));return NextResponse.json({status:'ok',database:'connected',timestamp:new Date().toISOString()});}catch{return NextResponse.json({status:'error',database:'unavailable'},{status:503});}}

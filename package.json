@@ -1,0 +1,34 @@
+{
+  "name": "zenstack360-connect",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "seed:local": "node scripts/seed-local.mjs",
+    "test:whatsapp": "node --experimental-strip-types --experimental-specifier-resolution=node --experimental-strip-types --test tests/whatsapp.test.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "inngest": "^4.26.2",
+    "jose": "^5.9.6",
+    "lucide-react": "^0.468.0",
+    "mongodb": "^6.12.0",
+    "next": "^14.2.21",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "eslint-config-next": "16.4.5",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2"
+  }
+}

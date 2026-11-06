@@ -1,0 +1,8 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import bcrypt from 'bcryptjs';
+import { ObjectId } from 'mongodb';
+import { getDb } from '@/lib/mongodb';
+import { createSession } from '@/lib/auth';
+const schema=z.object({name:z.string().min(2).max(80),email:z.string().email().transform(v=>v.toLowerCase()),password:z.string().min(10).max(100),workspace:z.string().min(2).max(80)});
+export async function POST(req:NextRequest){try{const data=schema.parse(await req.json());const db=await getDb();if(await db.collection('users').findOne({email:data.email}))return NextResponse.json({error:'An account with this email already exists.'},{status:409});const slug=data.workspace.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+Math.random().toString(36).slice(2,6);const now=new Date();const tenant={name:data.workspace,slug,plan:'free',status:'active',createdAt:now};const tenantResult=await db.collection('tenants').insertOne(tenant);const user={name:data.name,email:data.email,passwordHash:await bcrypt.hash(data.password,12),createdAt:now};const userResult=await db.collection('users').insertOne(user);await db.collection('memberships').insertOne({tenantId:tenantResult.insertedId,userId:userResult.insertedId,role:'owner',status:'active',createdAt:now});await createSession({userId:userResult.insertedId.toString(),tenantId:tenantResult.insertedId.toString(),email:data.email,name:data.name,role:'owner'});return NextResponse.json({ok:true},{status:201});}catch(e){const message=e instanceof Error?e.message:'Registration failed';return NextResponse.json({error:message},{status:400});}}

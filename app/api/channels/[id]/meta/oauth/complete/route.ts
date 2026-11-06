@@ -1,0 +1,14 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { ObjectId } from 'mongodb';
+import { requireBusinessAdmin } from '@/lib/auth';
+import { getDb } from '@/lib/mongodb';
+import { encryptSecret } from '@/lib/messaging/whatsapp';
+import { apiError } from '@/lib/http';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+ try { const s = await requireBusinessAdmin(); const { state, accountId } = await req.json(); const db = await getDb(); const row: any = await db.collection('metaOAuthStates').findOne({ state, channelId: new ObjectId(params.id), tenantId: new ObjectId(s.tenantId), userId: new ObjectId(s.userId), expiresAt: { $gt: new Date() } }); if (!row) return NextResponse.json({ error: 'OAuth state expired or invalid' }, { status: 400 }); const expected = createHmac('sha256', process.env.AUTH_SECRET!).update(row.state).digest(); const actual = Buffer.from(row.sig, 'hex'); if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return NextResponse.json({ error: 'OAuth state signature invalid' }, { status: 400 }); const account = row.accounts?.find((x: any) => x.id === accountId); if (!account) return NextResponse.json({ error: 'Selected account was not authorized' }, { status: 400 });
+   const channel: any = await db.collection('channels').findOne({ _id: row.channelId, tenantId: row.tenantId, type: row.type }); if (!channel) return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
+   const fields=row.type==='messenger'?'messages,messaging_postbacks,messaging_deliveries,messaging_reads':'messages,messaging_postbacks,messaging_seen';const subscribeUrl=`https://graph.facebook.com/${process.env.META_GRAPH_VERSION||'v22.0'}/${encodeURIComponent(account.pageId)}/subscribed_apps?subscribed_fields=${encodeURIComponent(fields)}`;const subscribed=await fetch(subscribeUrl,{method:'POST',headers:{Authorization:`Bearer ${account.token}`}});const subscribeData:any=await subscribed.json().catch(()=>({}));if(!subscribed.ok)return NextResponse.json({error:subscribeData?.error?.message||'Could not subscribe selected account to Meta webhooks'},{status:502});
+   await db.collection('channels').updateOne({ _id: channel._id, tenantId: row.tenantId }, { $set: { accountId: account.id, accountName: account.name, pageId: account.pageId, credentials: { accessTokenEncrypted: encryptSecret(account.token), appSecretEncrypted: encryptSecret(process.env.META_APP_SECRET!) }, webhookSubscribedAt:new Date(), connectionStatus: 'connected', status: 'connected', permissionsValidatedAt: new Date(), lastConnectionTestAt: new Date(), updatedAt: new Date() } }); await db.collection('metaOAuthStates').deleteOne({ _id: row._id }); return NextResponse.json({ ok: true, accountId: account.id, accountName: account.name });
+ } catch (e) { return apiError(e); }
+}

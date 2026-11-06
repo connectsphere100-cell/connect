@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
+import { encryptSecret, decryptSecret, parseWhatsAppWebhook, verifyWhatsAppSignature, sendWhatsApp } from '../lib/messaging/whatsapp.ts';
+
+const previousKey = process.env.CREDENTIAL_ENCRYPTION_KEY;
+process.env.CREDENTIAL_ENCRYPTION_KEY = 'a'.repeat(64);
+test('credentials use authenticated encryption', () => { const cipher=encryptSecret('token-secret'); assert.ok(!cipher.includes('token-secret')); assert.equal(decryptSecret(cipher),'token-secret'); assert.throws(()=>decryptSecret(cipher.replace(/.$/,'0'))); });
+test('webhook signature uses exact raw request bytes', () => { const raw=Buffer.from('{"object":"whatsapp_business_account"}'); const signature=`sha256=${createHmac('sha256','app-secret').update(raw).digest('hex')}`; assert.equal(verifyWhatsAppSignature(raw,signature,'app-secret'),true); assert.equal(verifyWhatsAppSignature(Buffer.from('tampered'),signature,'app-secret'),false); });
+test('webhooks normalize text, media, and delivery status', () => { const events=parseWhatsAppWebhook({entry:[{id:'waba',changes:[{field:'messages',value:{metadata:{phone_number_id:'phone'},contacts:[{wa_id:'1555123',profile:{name:'Ava'}}],messages:[{id:'wamid.1',from:'1555123',timestamp:'1700000000',type:'text',text:{body:'Hello'}},{id:'wamid.2',from:'1555123',type:'image',image:{id:'media.1',mime_type:'image/jpeg'}}],statuses:[{id:'wamid.out',status:'read',recipient_id:'1555123',timestamp:'1700000001'}]}}]}]}); assert.equal(events.length,3); assert.equal(events[0].messages[0].text,'Hello'); assert.equal(events[1].messages[0].attachments?.[0].fileId,'media.1'); assert.equal(events[2].messages[0].status,'read'); });
+test('adapter sends text through the official Graph API', async (t) => { const original=global.fetch; let called=''; global.fetch=async (url:any,init:any)=>{called=String(url);assert.equal(init.method,'POST');return new Response(JSON.stringify({messages:[{id:'wamid.sent'}]}),{status:200,headers:{'Content-Type':'application/json'}});}; t.after(()=>{global.fetch=original;}); const result=await sendWhatsApp({recipientId:'1555123',text:'Hello',idempotencyKey:'k'},{phoneNumberId:'phone',accessTokenEncrypted:encryptSecret('access-token')}); assert.equal(result.providerMessageId,'wamid.sent'); assert.match(called,/\/phone\/messages/); });
+test('restore prior encryption key after test suite',()=>{if(previousKey===undefined)delete process.env.CREDENTIAL_ENCRYPTION_KEY;else process.env.CREDENTIAL_ENCRYPTION_KEY=previousKey;});

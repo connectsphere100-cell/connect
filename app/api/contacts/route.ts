@@ -1,0 +1,11 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { ObjectId } from 'mongodb';
+import { z } from 'zod';
+import { getDb } from '@/lib/mongodb';
+import { requireSession } from '@/lib/auth';
+import { apiError } from '@/lib/http';
+import { dispatchWorkflowEvent } from '@/lib/workflows';
+
+const schema = z.object({ name:z.string().trim().min(1).max(120), email:z.string().email().or(z.literal('')).optional(), phone:z.string().max(40).optional(), company:z.string().max(120).optional(), tags:z.array(z.string().trim().min(1).max(40)).max(30).optional(), customFields:z.record(z.string().max(500)).optional(), notes:z.string().max(10000).optional(), assignedTo:z.string().nullable().optional(), source:z.string().max(100).optional(), attributes:z.record(z.unknown()).optional() });
+export async function GET(req:NextRequest){try{const s=await requireSession();const db=await getDb();const tenantId=new ObjectId(s.tenantId);const q=req.nextUrl.searchParams.get('q')?.trim();const tag=req.nextUrl.searchParams.get('tag');const source=req.nextUrl.searchParams.get('source');const filter:any={tenantId,deletedAt:{$exists:false}};if(q)filter.$or=['name','email','phone','company'].map(k=>({[k]:{$regex:q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),$options:'i'}}));if(tag)filter.tags=tag;if(source)filter.source=source;const rows=await db.collection('contacts').find(filter).sort({updatedAt:-1}).limit(300).toArray();return NextResponse.json({contacts:rows.map(x=>({...x,_id:x._id.toString()}))});}catch(e){return apiError(e);}}
+export async function POST(req:NextRequest){try{const s=await requireSession();const data=schema.parse(await req.json());const db=await getDb();const now=new Date(),tenantId=new ObjectId(s.tenantId);const doc={...data,email:data.email||null,tags:data.tags||[],customFields:data.customFields||{},attributes:data.attributes||{},tenantId,createdAt:now,updatedAt:now};const r=await db.collection('contacts').insertOne(doc);try{await dispatchWorkflowEvent(db,tenantId,'new_contact',{contactId:r.insertedId.toString()},`contact:${r.insertedId}`)}catch(error){console.error('Workflow event dispatch failed',error)}return NextResponse.json({contact:{...doc,_id:r.insertedId.toString()}},{status:201});}catch(e){return apiError(e);}}
